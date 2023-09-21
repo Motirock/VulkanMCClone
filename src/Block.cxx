@@ -9,6 +9,10 @@ Block::Block(glm::vec3 blockPosition, BlockType blockType) : position(blockPosit
     occupied = type != AIR;
 }
 
+Block::~Block() {
+
+}
+
 void Block::setType(BlockType blockType) {
     type = blockType;
     occupied = type != AIR;
@@ -66,6 +70,22 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
             topColor = sideColor;
             sideTextureCoords.x = (4.0f/16.0f);
             sideTextureCoords.y = (3.0f/16.0f);
+            topTextureCoords.x = sideTextureCoords.x;
+            topTextureCoords.y = sideTextureCoords.y;
+            bottomTextureCoords.x = sideTextureCoords.x;
+            bottomTextureCoords.y = sideTextureCoords.y;
+            break;
+        case STONE:
+            sideTextureCoords.x = (1.0f/16.0f);
+            sideTextureCoords.y = (0.0f/16.0f);
+            topTextureCoords.x = sideTextureCoords.x;
+            topTextureCoords.y = sideTextureCoords.y;
+            bottomTextureCoords.x = sideTextureCoords.x;
+            bottomTextureCoords.y = sideTextureCoords.y;
+            break;
+        case SNOW:
+            sideTextureCoords.x = (2.0f/16.0f);
+            sideTextureCoords.y = (4.0f/16.0f);
             topTextureCoords.x = sideTextureCoords.x;
             topTextureCoords.y = sideTextureCoords.y;
             bottomTextureCoords.x = sideTextureCoords.x;
@@ -164,5 +184,6 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
         indices.emplace_back(currentIndex + 3);
         indices.emplace_back(currentIndex + 2);
         indices.emplace_back(currentIndex + 1);
+        currentIndex += 4;
     }
 }

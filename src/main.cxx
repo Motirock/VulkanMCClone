@@ -92,6 +92,8 @@ const uint32_t HEIGHT = 600;
 
 const uint32_t MAX_VERTEX_MEMORY = 2'00'000*sizeof(Vertex);
 const uint32_t MAX_INDEX_MEMORY = 2'50'000*sizeof(uint32_t);
+const uint32_t CHUNK_MAX_VERTEX_MEMORY = 2'00'000*sizeof(Vertex);
+const uint32_t CHUNK_MAX_INDEX_MEMORY = 2'50'000*sizeof(uint32_t);
 
 const std::string MODEL_PATH = "models/viking_room.obj";
 const std::string TEXTURE_PATH = "textures/atlas.png";
@@ -206,12 +208,8 @@ private:
     std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
-    VkBuffer vertexStagingBuffer;
-    VkDeviceMemory vertexStagingBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
-    VkBuffer indexStagingBuffer;
-    VkDeviceMemory indexStagingBufferMemory;
     void *vertexData;
     void *indexData;
 
@@ -239,10 +237,10 @@ private:
     //Degrees, xy plane, xz plane
     glm::vec2 viewAngles = glm::vec2(0, 0);
 
-    float speed = 10.0f;
+    float speed = 30.0f;
     float turningSpeed = 2.0f;
 
-    const static int CHUNK_GRID_X_SIZE = 4, CHUNK_GRID_Y_SIZE = 4, CHUNK_GRID_Z_SIZE = 2;
+    const static int CHUNK_GRID_X_SIZE = 16, CHUNK_GRID_Y_SIZE = 16, CHUNK_GRID_Z_SIZE = 4;
     Chunk *chunkGrid[CHUNK_GRID_X_SIZE][CHUNK_GRID_Y_SIZE][CHUNK_GRID_Z_SIZE];
     bool blocksChanged = true;
 
@@ -251,7 +249,7 @@ private:
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-        window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+        window = glfwCreateWindow(WIDTH, HEIGHT, "MC Clone", nullptr, nullptr);
         glfwSetWindowUserPointer(window, this);
         glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     }
@@ -278,9 +276,9 @@ private:
         createTextureImage();
         createTextureImageView();
         createTextureSampler();
-        loadModel();
-        createVertexBuffer();
-        createIndexBuffer();
+        generateWorld();
+        createVertexBuffer(vertexBuffer, MAX_VERTEX_MEMORY, vertexData);
+        createIndexBuffer(indexBuffer, MAX_INDEX_MEMORY, indexData);
         createUniformBuffers();
         createDescriptorPool();
         createDescriptorSets();
@@ -294,29 +292,19 @@ private:
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
             cameraPos -= viewDirection*speed*(1.0f/TPS);
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-            cameraPos += glm::normalize(glm::vec3(
-                std::cos(glm::radians(-viewAngles.x))*std::cos(glm::radians(viewAngles.y+90)), 
-                std::sin(glm::radians(-viewAngles.x))*std::cos(glm::radians(viewAngles.y+90)), 
-                std::sin(glm::radians(viewAngles.y+90))
-                ))*speed*(1.0f/TPS);
+            cameraPos.z += speed*(1.0f/TPS);
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-            cameraPos += glm::normalize(glm::vec3(
-                std::cos(glm::radians(-viewAngles.x))*std::cos(glm::radians(viewAngles.y-90)), 
-                std::sin(glm::radians(-viewAngles.x))*std::cos(glm::radians(viewAngles.y-90)), 
-                std::sin(glm::radians(viewAngles.y-90))
-                ))*speed*(1.0f/TPS);
+            cameraPos.z -= speed*(1.0f/TPS);
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
             cameraPos += glm::normalize(glm::vec3(
                 std::cos(glm::radians(-viewAngles.x+90))*std::cos(glm::radians(viewAngles.y)), 
                 std::sin(glm::radians(-viewAngles.x+90))*std::cos(glm::radians(viewAngles.y)), 
-                std::sin(glm::radians(viewAngles.y))
-                ))*speed*(1.0f/TPS);
+                0))*speed*(1.0f/TPS);
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
             cameraPos += glm::normalize(glm::vec3(
                 std::cos(glm::radians(-viewAngles.x-90))*std::cos(glm::radians(viewAngles.y)), 
                 std::sin(glm::radians(-viewAngles.x-90))*std::cos(glm::radians(viewAngles.y)), 
-                std::sin(glm::radians(viewAngles.y))
-                ))*speed*(1.0f/TPS);
+                0))*speed*(1.0f/TPS);
         if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
             viewAngles.y += turningSpeed;
         if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
@@ -338,16 +326,29 @@ private:
                 if (blocksChanged)
                     updateVertices();
                 drawFrame();
-                if (ticks++ % TPS == 0) {
+                #ifndef NDEBUG
+                if (ticks % TPS == 0) {
                 auto currentTime = std::chrono::high_resolution_clock::now();
                 float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count()-time;
+                uint32_t vertexCount = 0;
+                uint32_t indexCount = 0;
+                for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+                    for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                        for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                            vertexCount += chunkGrid[x][y][z]->vertices.size();
+                            indexCount += chunkGrid[x][y][z]->indices.size();
+                        }
+                    }
+                }
                 std::cout << "Frame time: " << frameTime <<
                     ", Theoretical maximum FPS: " << (int) (1.0f/frameTime) << "\n"
-                    << "Polygons rendered: " << indices.size()/3 << "\n"
-                    << "Vertex buffer size: " << vertices.size()*sizeof(Vertex) << "/" << MAX_VERTEX_MEMORY << " (" << (100.0*vertices.size()*sizeof(Vertex)/MAX_VERTEX_MEMORY) << "\%)\n"
-                    << "Index buffer size: " << indices.size()*sizeof(uint32_t) << "/" << MAX_INDEX_MEMORY << " (" << (100.0*indices.size()*sizeof(uint32_t)/MAX_INDEX_MEMORY) << "\%)\n"
+                    << "Polygons rendered: " << indexCount/3 << "\n"
+                    << "Vertex count: " << vertexCount*sizeof(Vertex) << "\n"
+                    << "Index count: " << indexCount*sizeof(uint32_t) << "\n"
                     << "\n";
                 }
+                #endif
+                ticks++;
             }
         }
 
@@ -371,6 +372,19 @@ private:
     }
 
     void cleanup() {
+        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                    if (chunkGrid[x][y][z]->occupied) {
+                        vkDestroyBuffer(device, chunkGrid[x][y][z]->indexBuffer, nullptr);
+                        vkFreeMemory(device, chunkGrid[x][y][z]->indexBufferMemory, nullptr);
+                        vkDestroyBuffer(device, chunkGrid[x][y][z]->vertexBuffer, nullptr);
+                        vkFreeMemory(device, chunkGrid[x][y][z]->vertexBufferMemory, nullptr);
+                    }
+                }
+            }
+        }
+
         cleanupSwapChain();
 
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
@@ -394,13 +408,8 @@ private:
 
         vkDestroyBuffer(device, indexBuffer, nullptr);
         vkFreeMemory(device, indexBufferMemory, nullptr);
-        vkDestroyBuffer(device, indexStagingBuffer, nullptr);
-        vkFreeMemory(device, indexStagingBufferMemory, nullptr);
-
         vkDestroyBuffer(device, vertexBuffer, nullptr);
         vkFreeMemory(device, vertexBufferMemory, nullptr);
-        vkDestroyBuffer(device, vertexStagingBuffer, nullptr);
-        vkFreeMemory(device, vertexStagingBufferMemory, nullptr);
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
@@ -1094,58 +1103,6 @@ private:
         endSingleTimeCommands(commandBuffer);
     }
 
-    //TODO make sure unique points only
-    void createSphere(glm::vec3 center, float radius, int segments, std::vector<Vertex> &vertices, std::vector<unsigned int> &indices) {
-        for (int lat = 0; lat <= segments; ++lat) {
-            float theta = lat * M_PI / segments;
-            float sinTheta = sin(theta);
-            float cosTheta = cos(theta);
-
-            for (int lon = 0; lon <= segments; ++lon) {
-                float phi = lon * 2 * M_PI / segments;
-                float sinPhi = sin(phi);
-                float cosPhi = cos(phi);
-
-                float x = cosPhi * sinTheta * radius;
-                float y = cosTheta * radius;
-                float z = sinPhi * sinTheta * radius;
-
-                Vertex vertex{};
-
-                vertex.pos = {
-                    x + center.x,
-                    z + center.y,
-                    y + center.z
-                };
-
-                vertex.texCoord = {
-                    static_cast<float>(lon) / segments,
-                    static_cast<float>(lat) / segments
-                };
-
-                vertex.color = {(rand()%101)/100.0f, (rand()%101+1.0f)/100.0f, (rand()%101+1.0f)/100.0f};
-
-                vertices.push_back(vertex);
-            }
-        }
-
-        // Generate indices for triangles (no duplicate vertices)
-        for (int lat = 0; lat < segments; ++lat) {
-            for (int lon = 0; lon < segments; ++lon) {
-                int current = lat * (segments + 1) + lon;
-                int next = current + segments + 1;
-
-                indices.push_back(current + 1);
-                indices.push_back(current);
-                indices.push_back(next);
-
-                indices.push_back(current + 1);
-                indices.push_back(next);
-                indices.push_back(next + 1);
-            }
-        }
-    }
-
     Block uselessSadMeaninglessAndDepressedBlockThatLacksAllPurposeInExistencesJustLikeMe = Block(glm::vec3(-1.0f, -1.0f, -1.0f), AIR);
     Block& getBlock(glm::vec3 position) {
         position.x = (int) position.x;
@@ -1204,8 +1161,8 @@ private:
         getBlock(glm::vec3(base.x, base.y+1, base.z+6)).setTypeIfAir(LEAVES);
     }
 
-    void loadModel() {
-        SimplexNoise terrainNoise = SimplexNoise(0.01f, 1.0f, 2.0f, 0.5f);
+    void generateWorld() {
+        SimplexNoise terrainNoise = SimplexNoise(0.0025f, 1.0f, 2.0f, 0.6f);
         BlockType blockType;
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
@@ -1214,29 +1171,38 @@ private:
                     for (int X = x*CHUNK_X_SIZE; X < (x+1)*CHUNK_X_SIZE; X++) {
                         for (int Y = y*CHUNK_Y_SIZE; Y < (y+1)*CHUNK_Y_SIZE; Y++) {
                             for (int Z = z*CHUNK_Z_SIZE; Z < (z+1)*CHUNK_Z_SIZE; Z++) {
-                                int highestLand = (terrainNoise.fractal(2, X, Y)+1.0f)*CHUNK_Z_SIZE/2;
+                                int highestLand = (terrainNoise.fractal(4, X, Y)+1)/2*CHUNK_Z_SIZE*CHUNK_GRID_Z_SIZE;
                                 if (Z > highestLand)
                                     blockType = AIR;
                                 else if (Z == highestLand)
                                     blockType = GRASS;
+                                else if (Z >= highestLand-3) {
+                                    if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.75)
+                                        blockType = SNOW;
+                                    else
+                                        blockType = DIRT;
+                                }
                                 else
-                                    blockType = DIRT;
+                                    blockType = STONE;
                                 
                                 blocks.emplace_back(Block(glm::vec3(X+0.5f, Y+0.5f, Z+0.5f), blockType));
                             }
                         }
                     }
                     chunkGrid[x][y][z] = new Chunk(glm::vec3(x*CHUNK_X_SIZE, y*CHUNK_Y_SIZE, z*CHUNK_Z_SIZE), blocks);
+                    createVertexBuffer(chunkGrid[x][y][z]->vertexBuffer, CHUNK_MAX_VERTEX_MEMORY, chunkGrid[x][y][z]->vertexData);
+                    createIndexBuffer(chunkGrid[x][y][z]->indexBuffer, CHUNK_MAX_INDEX_MEMORY, chunkGrid[x][y][z]->indexData);
                 }
             }
         }
 
         //Trees
-        SimplexNoise treeNoise(0.5f, 1.0f, 2.0f, 0.5f);
+        uint32_t tryCount = 0;
+        SimplexNoise treeNoise(1.0f, 1.0f, 2.0f, 0.5f);
         for (int x = 0; x < CHUNK_GRID_X_SIZE*CHUNK_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE*CHUNK_Y_SIZE; y++) {
                 glm::vec3 base = glm::vec3(x, y, -1.0f);
-                if (treeNoise.noise(y, x) > 0.9f) {
+                if (treeNoise.noise(y, x) > 0.95f) {
                     for (int z = 0; z < CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE; z++) {
                         if (chunkGrid[x/CHUNK_X_SIZE][y/CHUNK_Y_SIZE][z/CHUNK_Z_SIZE]
                             ->blockGrid[x%CHUNK_X_SIZE][y%CHUNK_Y_SIZE][z%CHUNK_Z_SIZE]
@@ -1248,7 +1214,6 @@ private:
                     if (base.z != -1.0f) {
                         std::cout << base.x << ", " << base.y << ", " << base.z << "\n";
                         createTree(base);
-                        break;
                     }
                 }
             }
@@ -1294,56 +1259,44 @@ private:
         }*/
     }
     
-    void createVertexBuffer() {
-        assert(MAX_VERTEX_MEMORY >= vertices.size()*sizeof(Vertex));
-        VkDeviceSize bufferSize = MAX_VERTEX_MEMORY;
+    void createVertexBuffer(VkBuffer &vertexBuffer, VkDeviceSize bufferSize, void *&vertexData) {
+        createBuffer(bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexBuffer, vertexBufferMemory);
 
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, vertexStagingBuffer, vertexStagingBufferMemory);
-
-        std::vector<Vertex> tempVertices = std::vector<Vertex>();
-        for (int i = 0; i < 1; i++)
-            tempVertices.emplace_back(Vertex{{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f}});
-
-        vkMapMemory(device, vertexStagingBufferMemory, 0, bufferSize, 0, &vertexData);
-
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-
-        copyBuffer(vertexStagingBuffer, vertexBuffer, bufferSize);
+        vkMapMemory(device, vertexBufferMemory, 0, bufferSize, 0, &vertexData);
     }
 
-    void createIndexBuffer() {
-        assert(MAX_INDEX_MEMORY >= indices.size()*sizeof(uint32_t));
-        VkDeviceSize bufferSize = MAX_INDEX_MEMORY;
+    void createIndexBuffer(VkBuffer &indexBuffer, VkDeviceSize bufferSize, void *&indexData) {
+        createBuffer(bufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, indexBuffer, indexBufferMemory);
 
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, indexStagingBuffer, indexStagingBufferMemory);
-
-        std::vector<uint32_t> tempIndices = std::vector<uint32_t>();
-        for (int i = 0; i < 1; i++)
-            tempIndices.emplace_back(0);
-
-        vkMapMemory(device, indexStagingBufferMemory, 0, bufferSize, 0, &indexData);
-            memcpy(indexData, tempIndices.data(), (size_t) bufferSize);
-
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
-
-        copyBuffer(indexStagingBuffer, indexBuffer, bufferSize);
+        vkMapMemory(device, indexBufferMemory, 0, bufferSize, 0, &indexData);
     }
 
     void uploadVertices() {
         VkDeviceSize bufferSize = vertices.size()*sizeof(Vertex);
-        if (bufferSize > MAX_VERTEX_MEMORY) {
-
-        }
         memcpy(vertexData, vertices.data(), bufferSize);
 
-        copyBuffer(vertexStagingBuffer, vertexBuffer, MAX_VERTEX_MEMORY);
+        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                    bufferSize = chunkGrid[x][y][z]->vertices.size()*sizeof(Vertex);
+                    memcpy(chunkGrid[x][y][z]->vertexData, chunkGrid[x][y][z]->vertices.data(), bufferSize);
+                }
+            }
+        }
     }
 
     void uploadIndices() {
         VkDeviceSize bufferSize = indices.size()*sizeof(uint32_t);
         memcpy(indexData, indices.data(), bufferSize);
 
-        copyBuffer(indexStagingBuffer, indexBuffer, MAX_INDEX_MEMORY);
+        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                    bufferSize = chunkGrid[x][y][z]->indices.size()*sizeof(uint32_t);
+                    memcpy(chunkGrid[x][y][z]->indexData, chunkGrid[x][y][z]->indices.data(), bufferSize);
+                }
+            }
+        }
     }
 
     void createUniformBuffers() {
@@ -1541,15 +1494,7 @@ private:
 
         renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
         renderPassInfo.pClearValues = clearValues.data();
-
-        //TODO: each chunk has loaded vertices, and i draw as many chunks as will fit into the buffer.
-        //then, if chunks remain, I render it again.
-        //uint32_t verticesRendered
-        //while ()
-        VkBufferCopy copyRegion{};
-        copyRegion.size = MAX_VERTEX_MEMORY;
-        vkCmdCopyBuffer(commandBuffer, vertexStagingBuffer, vertexBuffer, 1, &copyRegion);
-
+        
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
@@ -1568,19 +1513,22 @@ private:
             scissor.extent = swapChainExtent;
             vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-            VkBuffer vertexBuffers[] = {vertexBuffer};
-            VkDeviceSize offsets[] = {0};
-
-                 
-
-            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
-            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
-            vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+            for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+                for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                    for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                        VkBuffer vertexBuffers[] = {chunkGrid[x][y][z]->vertexBuffer};
+                        VkDeviceSize offsets[] = {0};
 
+                        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+                        vkCmdBindIndexBuffer(commandBuffer, chunkGrid[x][y][z]->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+                        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(chunkGrid[x][y][z]->indices.size()), 1, 0, 0, 0);
+                    }
+                }
+            }
         vkCmdEndRenderPass(commandBuffer);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1639,7 +1587,7 @@ private:
         UniformBufferObject ubo{};
         ubo.model = glm::rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.view = glm::lookAt(cameraPos, cameraPos+viewDirection, glm::vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = glm::perspective(glm::radians(90.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 100.0f);
+        ubo.proj = glm::perspective(glm::radians(90.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 1000.0f);
         ubo.proj[1][1] *= -1;
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -1647,7 +1595,7 @@ private:
 
     void updateVertices() {
         std::vector<Block> blocks = std::vector<Block>();
-        Chunk emptyPlaceholderChunk(glm::vec3(0.0f, 0.0f, 0.0f), blocks);
+        Chunk emptyPlaceholderChunk(glm::vec3(-1.0f, -1.0f, -1.0f), blocks);
         vertices.clear();
         indices.clear();
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
@@ -1673,8 +1621,8 @@ private:
                     Chunk negativeZChunk(emptyPlaceholderChunk);
                     if (z-1 >= 0)
                         negativeZChunk = *chunkGrid[x][y][z-1];
-                    
-                    chunkGrid[x][y][z]->getVerticesIndices(vertices, indices,
+
+                    chunkGrid[x][y][z]->getVerticesIndices(chunkGrid[x][y][z]->vertices, chunkGrid[x][y][z]->indices,
                         positiveXChunk, negativeXChunk, 
                         positiveYChunk, negativeYChunk,
                         positiveZChunk, negativeZChunk);
@@ -1688,7 +1636,6 @@ private:
     }
 
     void drawFrame() {
-
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
         uint32_t imageIndex;

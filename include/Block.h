@@ -9,7 +9,7 @@
 
 using namespace VkUtils;
 
-enum BlockType {AIR, GRASS, DIRT, LOG, LEAVES};
+enum BlockType {AIR, GRASS, DIRT, LOG, LEAVES, STONE, SNOW};
 
 class Block {
 public:
@@ -20,6 +20,7 @@ public:
 
     Block();
     Block(glm::vec3 blockPosition, BlockType blockType);
+    ~Block();
 
     void setType(BlockType blockType);
 
