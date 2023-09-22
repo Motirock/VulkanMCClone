@@ -1,8 +1,11 @@
 #include "Chunk.h"
+#include <iostream>
+
+Chunk::Chunk() {
+    throw std::runtime_error("ERROR: Created Chunk using default constructor!");
+};
 
 Chunk::Chunk(glm::vec3 chunkPosition, std::vector<Block> &blocks) : position(chunkPosition) {
-
-
     for (Block &block : blocks) {
         int x = std::fmod(block.position.x, CHUNK_X_SIZE);
         int y = std::fmod(block.position.y, CHUNK_Y_SIZE);
@@ -18,7 +21,7 @@ Chunk::~Chunk() {
 
 }
 
-void Chunk::getVerticesIndices(std::vector<Vertex> &vertices, std::vector<uint32_t> &indices,  
+void Chunk::getVerticesIndices(
     Chunk &positiveXChunk, Chunk &negativeXChunk,
     Chunk &positiveYChunk, Chunk &negativeYChunk,
     Chunk &positiveZChunk, Chunk &negativeZChunk) {

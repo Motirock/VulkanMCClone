@@ -31,6 +31,7 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
     bool positiveZFaceVisible, bool negativeZFaceVisible) {
     if (!occupied)
         return;
+
     uint32_t currentIndex = vertices.size();
 
     glm::vec3 sideColor = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -94,9 +95,10 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
              
         case AIR:
             occupied = false;
+            return;
             break;
     }
-
+    
     //Positive x face
     if (positiveXFaceVisible) {
         vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
