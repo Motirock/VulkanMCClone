@@ -242,8 +242,16 @@ private:
     float turningSpeed = 2.0f;
 
     const static int CHUNK_GRID_X_SIZE = 16, CHUNK_GRID_Y_SIZE = 16, CHUNK_GRID_Z_SIZE = 4;
-    Chunk *chunkGrid[CHUNK_GRID_X_SIZE][CHUNK_GRID_Y_SIZE][CHUNK_GRID_Z_SIZE];
+    Chunk *chunkGrid[CHUNK_GRID_X_SIZE*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE];
     bool blocksChanged = true;
+
+    Chunk* getChunk(uint32_t x, uint32_t y, uint32_t z) {
+        return chunkGrid[x*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE+y*CHUNK_GRID_Z_SIZE+z];
+    }
+
+    void setChunk(uint32_t x, uint32_t y, uint32_t z, Chunk *chunk) {
+        chunkGrid[x*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE+y*CHUNK_GRID_Z_SIZE+z] = chunk;
+    }
 
     Block uselessSadMeaninglessAndDepressedBlockThatLacksAllPurposeInExistencesJustLikeMe = Block(glm::vec3(-1.0f, -1.0f, -1.0f), AIR);
     Block& getBlock(glm::vec3 position) {
@@ -256,8 +264,8 @@ private:
             std::cerr << "ERROR: getBlock(" << position.x << ", " << position.y << ", " << position.z << ") out of bounds!\n";
             return uselessSadMeaninglessAndDepressedBlockThatLacksAllPurposeInExistencesJustLikeMe;
         }
-        return chunkGrid[(int) position.x/CHUNK_X_SIZE][(int) position.y/CHUNK_Y_SIZE][(int) position.z/CHUNK_Z_SIZE]
-            ->blockGrid[(int) position.x%CHUNK_X_SIZE][(int) position.y%CHUNK_Y_SIZE][(int) position.z%CHUNK_Z_SIZE];
+        return getChunk((int) position.x/CHUNK_X_SIZE, (int) position.y/CHUNK_Y_SIZE, (int) position.z/CHUNK_Z_SIZE)
+            ->getBlock((int) position.x%CHUNK_X_SIZE, (int) position.y%CHUNK_Y_SIZE, (int) position.z%CHUNK_Z_SIZE);
     }
 
     void setBlock(glm::vec3 position, Block &block) {
@@ -267,8 +275,8 @@ private:
             std::cerr << "ERROR: setBlock(" << position.x << ", " << position.y << ", " << position.z << ") out of bounds!\n";
             return;
         }
-        chunkGrid[(int) position.x/CHUNK_X_SIZE][(int) position.y/CHUNK_Y_SIZE][(int) position.z/CHUNK_Z_SIZE]
-            ->blockGrid[(int) position.x%CHUNK_X_SIZE][(int) position.y%CHUNK_Y_SIZE][(int) position.z%CHUNK_Z_SIZE]
+        getChunk((int) position.x/CHUNK_X_SIZE, (int) position.y/CHUNK_Y_SIZE, (int) position.z/CHUNK_Z_SIZE)
+            ->getBlock((int) position.x%CHUNK_X_SIZE, (int) position.y%CHUNK_Y_SIZE, (int) position.z%CHUNK_Z_SIZE)
             = block;
     }
 
@@ -331,9 +339,9 @@ private:
                             }
                         }
                     }
-                    chunkGrid[x][y][z] = new Chunk(glm::vec3(x*CHUNK_X_SIZE, y*CHUNK_Y_SIZE, z*CHUNK_Z_SIZE), blocks);
-                    createVertexBuffer(chunkGrid[x][y][z]->vertexBuffer, CHUNK_MAX_VERTEX_MEMORY, chunkGrid[x][y][z]->vertexData);
-                    createIndexBuffer(chunkGrid[x][y][z]->indexBuffer, CHUNK_MAX_INDEX_MEMORY, chunkGrid[x][y][z]->indexData);
+                    setChunk(x, y, z, new Chunk(glm::vec3(x*CHUNK_X_SIZE, y*CHUNK_Y_SIZE, z*CHUNK_Z_SIZE), blocks));
+                    createVertexBuffer(getChunk(x, y, z)->vertexBuffer, CHUNK_MAX_VERTEX_MEMORY, getChunk(x, y, z)->vertexData);
+                    createIndexBuffer(getChunk(x, y, z)->indexBuffer, CHUNK_MAX_INDEX_MEMORY, getChunk(x, y, z)->indexData);
                 }
             }
         }
@@ -346,8 +354,8 @@ private:
                 glm::vec3 base = glm::vec3(x, y, -1.0f);
                 if (treeNoise.noise(y, x) > 0.95f) {
                     for (int z = 0; z < CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE; z++) {
-                        if (chunkGrid[x/CHUNK_X_SIZE][y/CHUNK_Y_SIZE][z/CHUNK_Z_SIZE]
-                            ->blockGrid[x%CHUNK_X_SIZE][y%CHUNK_Y_SIZE][z%CHUNK_Z_SIZE]
+                        if (getChunk(x/CHUNK_X_SIZE, y/CHUNK_Y_SIZE, z/CHUNK_Z_SIZE)
+                            ->getBlock(x%CHUNK_X_SIZE, y%CHUNK_Y_SIZE, z%CHUNK_Z_SIZE)
                             .type == GRASS) {
                             base.z = z;
                             break;
@@ -492,16 +500,16 @@ private:
                 for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
                     for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                         for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                            vertexCount += chunkGrid[x][y][z]->vertices.size();
-                            indexCount += chunkGrid[x][y][z]->indices.size();
+                            vertexCount += getChunk(x, y, z)->vertices.size();
+                            indexCount += getChunk(x, y, z)->indices.size();
                         }
                     }
                 }
                 std::cout << "Frame time: " << frameTime <<
                     ", Theoretical maximum FPS: " << (int) (1.0f/frameTime) << "\n"
                     << "Polygons rendered: " << indexCount/3 << "\n"
-                    << "Vertex count: " << vertexCount*sizeof(Vertex) << "\n"
-                    << "Index count: " << indexCount*sizeof(uint32_t) << "\n"
+                    << "Vertex count: " << vertexCount << "\n"
+                    << "Index count: " << indexCount << "\n"
                     << "\n";
                 }
                 #endif
@@ -1208,7 +1216,7 @@ private:
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerInfo.magFilter = VK_FILTER_NEAREST;
-        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_NEAREST;
         samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1218,7 +1226,7 @@ private:
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
         samplerInfo.compareEnable = VK_FALSE;
         samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         samplerInfo.minLod = 0.0f; // Optional
         samplerInfo.maxLod = static_cast<float>(mipLevels);
         samplerInfo.mipLodBias = 0.0f; // Optional
@@ -1372,8 +1380,8 @@ private:
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                 for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                    bufferSize = chunkGrid[x][y][z]->vertices.size()*sizeof(Vertex);
-                    memcpy(chunkGrid[x][y][z]->vertexData, chunkGrid[x][y][z]->vertices.data(), bufferSize);
+                    bufferSize = getChunk(x, y, z)->vertices.size()*sizeof(Vertex);
+                    memcpy(getChunk(x, y, z)->vertexData, getChunk(x, y, z)->vertices.data(), bufferSize);
                 }
             }
         }
@@ -1386,8 +1394,8 @@ private:
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                 for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                    bufferSize = chunkGrid[x][y][z]->indices.size()*sizeof(uint32_t);
-                    memcpy(chunkGrid[x][y][z]->indexData, chunkGrid[x][y][z]->indices.data(), bufferSize);
+                    bufferSize = getChunk(x, y, z)->indices.size()*sizeof(uint32_t);
+                    memcpy(getChunk(x, y, z)->indexData, getChunk(x, y, z)->indices.data(), bufferSize);
                 }
             }
         }
@@ -1612,14 +1620,14 @@ private:
             for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
                 for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                     for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                        VkBuffer vertexBuffers[] = {chunkGrid[x][y][z]->vertexBuffer};
+                        VkBuffer vertexBuffers[] = {getChunk(x, y, z)->vertexBuffer};
                         VkDeviceSize offsets[] = {0};
 
                         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-                        vkCmdBindIndexBuffer(commandBuffer, chunkGrid[x][y][z]->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+                        vkCmdBindIndexBuffer(commandBuffer, getChunk(x, y, z)->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-                        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(chunkGrid[x][y][z]->indices.size()), 1, 0, 0, 0);
+                        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(getChunk(x, y, z)->indices.size()), 1, 0, 0, 0);
                     }
                 }
             }
@@ -1697,26 +1705,26 @@ private:
                 for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
                     Chunk positiveXChunk(emptyPlaceholderChunk);
                     if (x+1 < CHUNK_GRID_X_SIZE)
-                        positiveXChunk = *chunkGrid[x+1][y][z];
+                        positiveXChunk = *getChunk(x+1, y, z);
                     Chunk negativeXChunk(emptyPlaceholderChunk);
                     if (x-1 >= 0)
-                        negativeXChunk = *chunkGrid[x-1][y][z];
+                        negativeXChunk = *getChunk(x-1, y, z);;
 
                     Chunk positiveYChunk(emptyPlaceholderChunk);
                     if (y+1 < CHUNK_GRID_Y_SIZE)
-                        positiveYChunk = *chunkGrid[x][y+1][z];
+                        positiveYChunk = *getChunk(x, y+1, z);;
                     Chunk negativeYChunk(emptyPlaceholderChunk);
                     if (y-1 >= 0)
-                        negativeYChunk = *chunkGrid[x][y-1][z];
+                        negativeYChunk = *getChunk(x, y-1, z);;
 
                     Chunk positiveZChunk(emptyPlaceholderChunk);
                     if (z+1 < CHUNK_GRID_Z_SIZE)
-                        positiveZChunk = *chunkGrid[x][y][z+1];
+                        positiveZChunk = *getChunk(x, y, z+1);
                     Chunk negativeZChunk(emptyPlaceholderChunk);
                     if (z-1 >= 0)
-                        negativeZChunk = *chunkGrid[x][y][z-1];
+                        negativeZChunk = *getChunk(x, y, z-1);
 
-                    chunkGrid[x][y][z]->getVerticesIndices(
+                    getChunk(x, y, z)->getVerticesIndices(
                         positiveXChunk, negativeXChunk, 
                         positiveYChunk, negativeYChunk,
                         positiveZChunk, negativeZChunk);

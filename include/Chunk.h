@@ -21,11 +21,14 @@ public:
     void *indexData;
 
     glm::vec3 position = glm::vec3(0.0f, 0.0f, 0.0f);
-    Block blockGrid[CHUNK_X_SIZE][CHUNK_Y_SIZE][CHUNK_Z_SIZE];
+    Block blockGrid[CHUNK_X_SIZE*CHUNK_Y_SIZE*CHUNK_Z_SIZE];
 
     Chunk();
     Chunk(glm::vec3 chunkPosition, std::vector<Block> &blocks);
     ~Chunk();
+
+    Block& getBlock(uint32_t x, uint32_t y, uint32_t z);
+    void setBlock(uint32_t x, uint32_t y, uint32_t z, Block &block);
 
     //bool (&negativeXFaces)[CHUNK_Y_SIZE][CHUNK_Z_SIZE])
     void getVerticesIndices(  
