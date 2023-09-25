@@ -12,7 +12,9 @@ Chunk::Chunk(glm::vec3 chunkPosition, std::vector<Block> &blocks) : position(chu
         int z = std::fmod(block.position.z, CHUNK_Z_SIZE);
         if (!getBlock(x, y, z).occupied) {
             getBlock(x, y, z) = block;
-            occupied = true;
+            if (block.type != AIR) {
+                occupied = true;
+            }
         }
     }
 }
@@ -29,10 +31,13 @@ void Chunk::setBlock(uint32_t x, uint32_t y, uint32_t z, Block& block) {
     blockGrid[x*CHUNK_Y_SIZE*CHUNK_Z_SIZE+y*CHUNK_Z_SIZE+z] = block;
 }
 
-void Chunk::getVerticesIndices(
+void Chunk::loadVerticesIndices(
     Chunk &positiveXChunk, Chunk &negativeXChunk,
     Chunk &positiveYChunk, Chunk &negativeYChunk,
     Chunk &positiveZChunk, Chunk &negativeZChunk) {
+    vertices.clear();
+    indices.clear();
+
     for (int x = 0; x < CHUNK_X_SIZE; x++) {
         for (int y = 0; y < CHUNK_Y_SIZE; y++) {
             for (int z = 0; z < CHUNK_Z_SIZE; z++) {
@@ -54,4 +59,9 @@ void Chunk::getVerticesIndices(
             }
         }
     }
+    blocksChanged = false;
+}
+
+bool Chunk::isVisible(glm::vec3 &cameraPos, glm::vec3 &viewDirection) {
+    return vertices.size() > 0;
 }

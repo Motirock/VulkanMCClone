@@ -78,7 +78,7 @@ if (time*TPS >= ticks) {
 #include <thread>
 
 #include "VkUtils.h"
-#include "SimplexNoise.h"
+#include "PerlinNoise.hpp"
 #include "Chunk.h"
 
 using namespace VkUtils;
@@ -157,6 +157,22 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+};
+
+struct WorldGenerationInfo {
+    uint32_t seed;
+    float terrainFrequency;
+    float snowHeight;
+    float treeFrequency;
+    float minTreeNoiseValue;
+
+    WorldGenerationInfo(uint32_t seed, float terrainFrequency, float snowHeight, float treeFrequency, float minTreeNoiseValue) {
+        this->seed = seed;
+        this->terrainFrequency = terrainFrequency;
+        this->snowHeight = snowHeight;
+        this->treeFrequency = treeFrequency;
+        this->minTreeNoiseValue = minTreeNoiseValue;
+    }
 };
 
 class MCCloneApplication {
@@ -241,9 +257,11 @@ private:
     float speed = 30.0f;
     float turningSpeed = 2.0f;
 
-    const static int CHUNK_GRID_X_SIZE = 16, CHUNK_GRID_Y_SIZE = 16, CHUNK_GRID_Z_SIZE = 4;
+    const static int CHUNK_GRID_X_SIZE = 16, CHUNK_GRID_Y_SIZE = 16, CHUNK_GRID_Z_SIZE = 8;
     Chunk *chunkGrid[CHUNK_GRID_X_SIZE*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE];
     bool blocksChanged = true;
+
+    WorldGenerationInfo worldGenerationInfo = WorldGenerationInfo(123u, 0.01f, 0.5f, 1.0f, 0.7f);
 
     Chunk* getChunk(uint32_t x, uint32_t y, uint32_t z) {
         return chunkGrid[x*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE+y*CHUNK_GRID_Z_SIZE+z];
@@ -261,7 +279,9 @@ private:
         if (position.x >= CHUNK_GRID_X_SIZE*CHUNK_X_SIZE || position.x < 0
          || position.y >= CHUNK_GRID_Y_SIZE*CHUNK_Y_SIZE || position.y < 0
          || position.z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE || position.z < 0) {
+            #ifndef NDEBUG
             std::cerr << "ERROR: getBlock(" << position.x << ", " << position.y << ", " << position.z << ") out of bounds!\n";
+            #endif
             return uselessSadMeaninglessAndDepressedBlockThatLacksAllPurposeInExistencesJustLikeMe;
         }
         return getChunk((int) position.x/CHUNK_X_SIZE, (int) position.y/CHUNK_Y_SIZE, (int) position.z/CHUNK_Z_SIZE)
@@ -272,7 +292,12 @@ private:
         if (position.x > CHUNK_GRID_X_SIZE*CHUNK_X_SIZE || position.x < 0
          || position.y > CHUNK_GRID_Y_SIZE*CHUNK_Y_SIZE || position.y < 0
          || position.z > CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE || position.z < 0) {
+            //Should I be doing this every time setBlock is called ?
+            getChunk(position.x/CHUNK_X_SIZE, position.y/CHUNK_Y_SIZE, position.z/CHUNK_Z_SIZE)->blocksChanged = true;
+            blocksChanged = true;
+            #ifndef NDEBUG
             std::cerr << "ERROR: setBlock(" << position.x << ", " << position.y << ", " << position.z << ") out of bounds!\n";
+            #endif
             return;
         }
         getChunk((int) position.x/CHUNK_X_SIZE, (int) position.y/CHUNK_Y_SIZE, (int) position.z/CHUNK_Z_SIZE)
@@ -295,11 +320,9 @@ private:
         for (int x = base.x-2; x <= base.x+2; x++)
             for (int y = base.y-2; y <= base.y+2; y++)
                 getBlock(glm::vec3(x, y, base.z+3)).setTypeIfAir(LEAVES);
-        std::cout << "C";
         for (int x = base.x-2; x <= base.x+2; x++)
             for (int y = base.y-2; y <= base.y+2; y++)
                 getBlock(glm::vec3(x, y, base.z+4)).setTypeIfAir(LEAVES);
-        std::cout << "D";
         for (int x = base.x-1; x <= base.x+1; x++)
             for (int y = base.y-1; y <= base.y+1; y++)
                 getBlock(glm::vec3(x, y, base.z+5)).setTypeIfAir(LEAVES);
@@ -312,7 +335,9 @@ private:
     }
 
     void generateWorld() {
-        SimplexNoise terrainNoise = SimplexNoise(0.0025f, 1.0f, 2.0f, 0.6f);
+        const siv::PerlinNoise::seed_type terrainNoiseSeed = worldGenerationInfo.seed;
+	    const siv::PerlinNoise terrainNoise{ terrainNoiseSeed };
+
         BlockType blockType;
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
@@ -320,15 +345,21 @@ private:
                     std::vector<Block> blocks;
                     for (int X = x*CHUNK_X_SIZE; X < (x+1)*CHUNK_X_SIZE; X++) {
                         for (int Y = y*CHUNK_Y_SIZE; Y < (y+1)*CHUNK_Y_SIZE; Y++) {
+                            int highestLand = terrainNoise.normalizedOctave2D_01(X*worldGenerationInfo.terrainFrequency, Y*worldGenerationInfo.terrainFrequency, 6)*CHUNK_Z_SIZE*CHUNK_GRID_Z_SIZE;
                             for (int Z = z*CHUNK_Z_SIZE; Z < (z+1)*CHUNK_Z_SIZE; Z++) {
-                                int highestLand = (terrainNoise.fractal(4, X, Y)+1)/2*CHUNK_Z_SIZE*CHUNK_GRID_Z_SIZE;
                                 if (Z > highestLand)
                                     blockType = AIR;
-                                else if (Z == highestLand)
-                                    blockType = GRASS;
-                                else if (Z >= highestLand-3) {
-                                    if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.75)
+                                else if (Z == highestLand) {
+                                    if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*worldGenerationInfo.snowHeight
+                                        +CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.1f*terrainNoise.noise2D_01(Y*0.05f, X*0.05f))
                                         blockType = SNOW;
+                                    else
+                                        blockType = GRASS;
+                                }
+                                else if (Z >= highestLand-1-2*terrainNoise.noise2D_01(Y, X)) {
+                                    if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*worldGenerationInfo.snowHeight
+                                        +CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.1f*terrainNoise.noise2D_01(Y*0.05f, X*0.05f))
+                                        blockType = STONE;
                                     else
                                         blockType = DIRT;
                                 }
@@ -339,37 +370,33 @@ private:
                             }
                         }
                     }
+                    if (getChunk(x, y, z) != nullptr)
+                        delete(getChunk(x, y, z));
                     setChunk(x, y, z, new Chunk(glm::vec3(x*CHUNK_X_SIZE, y*CHUNK_Y_SIZE, z*CHUNK_Z_SIZE), blocks));
-                    createVertexBuffer(getChunk(x, y, z)->vertexBuffer, CHUNK_MAX_VERTEX_MEMORY, getChunk(x, y, z)->vertexData);
-                    createIndexBuffer(getChunk(x, y, z)->indexBuffer, CHUNK_MAX_INDEX_MEMORY, getChunk(x, y, z)->indexData);
                 }
             }
         }
 
         //Trees
-        uint32_t tryCount = 0;
-        SimplexNoise treeNoise(1.0f, 1.0f, 2.0f, 0.5f);
+        const siv::PerlinNoise::seed_type treeNoiseSeed = worldGenerationInfo.seed-1;
+	    const siv::PerlinNoise treeNoise{ treeNoiseSeed };
         for (int x = 0; x < CHUNK_GRID_X_SIZE*CHUNK_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE*CHUNK_Y_SIZE; y++) {
                 glm::vec3 base = glm::vec3(x, y, -1.0f);
-                if (treeNoise.noise(y, x) > 0.95f) {
+                if (treeNoise.normalizedOctave2D_01(y*worldGenerationInfo.treeFrequency, x*worldGenerationInfo.treeFrequency, 2) >= worldGenerationInfo.minTreeNoiseValue) {
                     for (int z = 0; z < CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE; z++) {
-                        if (getChunk(x/CHUNK_X_SIZE, y/CHUNK_Y_SIZE, z/CHUNK_Z_SIZE)
-                            ->getBlock(x%CHUNK_X_SIZE, y%CHUNK_Y_SIZE, z%CHUNK_Z_SIZE)
-                            .type == GRASS) {
+                        if (getBlock(glm::vec3(x, y, z)).type == GRASS) {
                             base.z = z;
                             break;
                         }
                     }
                     if (base.z != -1.0f) {
-                        std::cout << base.x << ", " << base.y << ", " << base.z << "\n";
                         createTree(base);
                     }
                 }
             }
         }
-
-        
+   
 
         /*tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
@@ -478,6 +505,10 @@ private:
             viewAngles.x -= turningSpeed;
         if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
             viewAngles.x += turningSpeed;
+        if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+            createTree(glm::vec3(100.0f, 100.0f, 250.0f));
+            std::cout << "created tree\n";
+        }
     }
 
     void mainLoop() {
@@ -491,7 +522,10 @@ private:
                 if (blocksChanged)
                     updateVertices();
                 drawFrame();
-                #ifndef NDEBUG
+                #ifdef SHOW_POSITION
+                std::cout << "X Y Z: " << cameraPos.x << " " << cameraPos.y << " " << cameraPos.z << "\n";
+                #endif
+                #ifndef HIDE_DIAGNOSTICS
                 if (ticks % TPS == 0) {
                 auto currentTime = std::chrono::high_resolution_clock::now();
                 float frameTime = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count()-time;
@@ -508,8 +542,8 @@ private:
                 std::cout << "Frame time: " << frameTime <<
                     ", Theoretical maximum FPS: " << (int) (1.0f/frameTime) << "\n"
                     << "Polygons rendered: " << indexCount/3 << "\n"
-                    << "Vertex count: " << vertexCount << "\n"
-                    << "Index count: " << indexCount << "\n"
+                    << "Vertex count: " << vertexCount << " Vertex memory size: " << vertexCount*sizeof(Vertex) << "\n"
+                    << "Index count: " << indexCount << " Index memory size: " << indexCount*sizeof(uint32_t) << "\n"
                     << "\n";
                 }
                 #endif
@@ -623,7 +657,7 @@ private:
 
         VkApplicationInfo appInfo{};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "Hello Triangle";
+        appInfo.pApplicationName = "MC Clone";
         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
         appInfo.pEngineName = "No Engine";
         appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -1216,7 +1250,7 @@ private:
         VkSamplerCreateInfo samplerInfo{};
         samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         samplerInfo.magFilter = VK_FILTER_NEAREST;
-        samplerInfo.minFilter = VK_FILTER_NEAREST;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
         samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1228,7 +1262,7 @@ private:
         samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
         samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         samplerInfo.minLod = 0.0f; // Optional
-        samplerInfo.maxLod = static_cast<float>(mipLevels);
+        samplerInfo.maxLod = 0.0f;static_cast<float>(mipLevels);
         samplerInfo.mipLodBias = 0.0f; // Optional
 
         if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
@@ -1371,34 +1405,6 @@ private:
         createBuffer(bufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, indexBuffer, indexBufferMemory);
 
         vkMapMemory(device, indexBufferMemory, 0, bufferSize, 0, &indexData);
-    }
-
-    void uploadVertices() {
-        VkDeviceSize bufferSize = vertices.size()*sizeof(Vertex);
-        memcpy(vertexData, vertices.data(), bufferSize);
-
-        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
-            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
-                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                    bufferSize = getChunk(x, y, z)->vertices.size()*sizeof(Vertex);
-                    memcpy(getChunk(x, y, z)->vertexData, getChunk(x, y, z)->vertices.data(), bufferSize);
-                }
-            }
-        }
-    }
-
-    void uploadIndices() {
-        VkDeviceSize bufferSize = indices.size()*sizeof(uint32_t);
-        memcpy(indexData, indices.data(), bufferSize);
-
-        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
-            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
-                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                    bufferSize = getChunk(x, y, z)->indices.size()*sizeof(uint32_t);
-                    memcpy(getChunk(x, y, z)->indexData, getChunk(x, y, z)->indices.data(), bufferSize);
-                }
-            }
-        }
     }
 
     void createUniformBuffers() {
@@ -1620,6 +1626,8 @@ private:
             for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
                 for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                     for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                        if (!getChunk(x, y, z)->isVisible(cameraPos, viewDirection))
+                            continue;
                         VkBuffer vertexBuffers[] = {getChunk(x, y, z)->vertexBuffer};
                         VkDeviceSize offsets[] = {0};
 
@@ -1695,39 +1703,83 @@ private:
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }
 
+    void uploadVertices() {
+        VkDeviceSize bufferSize = vertices.size()*sizeof(Vertex);
+        memcpy(vertexData, vertices.data(), bufferSize);
+
+        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                    bufferSize = getChunk(x, y, z)->vertices.size()*sizeof(Vertex);
+                    memcpy(getChunk(x, y, z)->vertexData, getChunk(x, y, z)->vertices.data(), bufferSize);
+                }
+            }
+        }
+    }
+
+    void uploadIndices() {
+        VkDeviceSize bufferSize = indices.size()*sizeof(uint32_t);
+        memcpy(indexData, indices.data(), bufferSize);
+
+        for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
+            for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
+                for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
+                    bufferSize = getChunk(x, y, z)->indices.size()*sizeof(uint32_t);
+                    memcpy(getChunk(x, y, z)->indexData, getChunk(x, y, z)->indices.data(), bufferSize);
+                }
+            }
+        }
+    }
+
+    std::vector<Block> emptyBlockVector = std::vector<Block>();
+    Chunk emptyPlaceholderChunk = Chunk(glm::vec3(-1.0f, -1.0f, -1.0f), emptyBlockVector);
+    void updateChunkVertices(int32_t x, int32_t y, int32_t z) {
+        Chunk positiveXChunk(emptyPlaceholderChunk);
+        if (x+1 < CHUNK_GRID_X_SIZE)
+            positiveXChunk = *getChunk(x+1, y, z);
+        Chunk negativeXChunk(emptyPlaceholderChunk);
+        if (x-1 >= 0)
+            negativeXChunk = *getChunk(x-1, y, z);;
+
+        Chunk positiveYChunk(emptyPlaceholderChunk);
+        if (y+1 < CHUNK_GRID_Y_SIZE)
+            positiveYChunk = *getChunk(x, y+1, z);;
+        Chunk negativeYChunk(emptyPlaceholderChunk);
+        if (y-1 >= 0)
+            negativeYChunk = *getChunk(x, y-1, z);;
+
+        Chunk positiveZChunk(emptyPlaceholderChunk);
+        if (z+1 < CHUNK_GRID_Z_SIZE)
+            positiveZChunk = *getChunk(x, y, z+1);
+        Chunk negativeZChunk(emptyPlaceholderChunk);
+        if (z-1 >= 0)
+            negativeZChunk = *getChunk(x, y, z-1);
+
+        getChunk(x, y, z)->loadVerticesIndices(
+            positiveXChunk, negativeXChunk, 
+            positiveYChunk, negativeYChunk,
+            positiveZChunk, negativeZChunk);
+    }
+
     void updateVertices() {
-        std::vector<Block> blocks = std::vector<Block>();
-        Chunk emptyPlaceholderChunk(glm::vec3(-1.0f, -1.0f, -1.0f), blocks);
         vertices.clear();
         indices.clear();
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                 for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
-                    Chunk positiveXChunk(emptyPlaceholderChunk);
-                    if (x+1 < CHUNK_GRID_X_SIZE)
-                        positiveXChunk = *getChunk(x+1, y, z);
-                    Chunk negativeXChunk(emptyPlaceholderChunk);
-                    if (x-1 >= 0)
-                        negativeXChunk = *getChunk(x-1, y, z);;
-
-                    Chunk positiveYChunk(emptyPlaceholderChunk);
-                    if (y+1 < CHUNK_GRID_Y_SIZE)
-                        positiveYChunk = *getChunk(x, y+1, z);;
-                    Chunk negativeYChunk(emptyPlaceholderChunk);
-                    if (y-1 >= 0)
-                        negativeYChunk = *getChunk(x, y-1, z);;
-
-                    Chunk positiveZChunk(emptyPlaceholderChunk);
-                    if (z+1 < CHUNK_GRID_Z_SIZE)
-                        positiveZChunk = *getChunk(x, y, z+1);
-                    Chunk negativeZChunk(emptyPlaceholderChunk);
-                    if (z-1 >= 0)
-                        negativeZChunk = *getChunk(x, y, z-1);
-
-                    getChunk(x, y, z)->getVerticesIndices(
-                        positiveXChunk, negativeXChunk, 
-                        positiveYChunk, negativeYChunk,
-                        positiveZChunk, negativeZChunk);
+                    if (getChunk(x, y, z)->blocksChanged) {
+                        updateChunkVertices(x, y, z);
+                        //TODO make it so max index is seperate from max vertex
+                        if (getChunk(x, y, z)->vertices.size() > getChunk(x, y, z)->maxVertexCount) {
+                            vkDestroyBuffer(device, getChunk(x, y, z)->indexBuffer, nullptr);
+                            vkFreeMemory(device, getChunk(x, y, z)->indexBufferMemory, nullptr);
+                            vkDestroyBuffer(device, getChunk(x, y, z)->vertexBuffer, nullptr);
+                            vkFreeMemory(device, getChunk(x, y, z)->vertexBufferMemory, nullptr);
+                            getChunk(x, y, z)->maxVertexCount = getChunk(x, y, z)->vertices.size()+4*20;
+                            createVertexBuffer(getChunk(x, y, z)->vertexBuffer, getChunk(x, y, z)->maxVertexCount*sizeof(Vertex), getChunk(x, y, z)->vertexData);
+                            createIndexBuffer(getChunk(x, y, z)->indexBuffer, getChunk(x, y, z)->maxVertexCount*3/2*sizeof(uint32_t), getChunk(x, y, z)->indexData);
+                        }
+                    }
                 }
             }
         }
