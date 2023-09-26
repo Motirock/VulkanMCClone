@@ -165,6 +165,7 @@ struct WorldGenerationInfo {
     float snowHeight;
     float treeFrequency;
     float minTreeNoiseValue;
+    float seaLevel = 0.5f;
 
     WorldGenerationInfo(uint32_t seed, float terrainFrequency, float snowHeight, float treeFrequency, float minTreeNoiseValue) {
         this->seed = seed;
@@ -334,6 +335,30 @@ private:
         getBlock(glm::vec3(base.x, base.y+1, base.z+6)).setTypeIfAir(LEAVES);
     }
 
+    float getElevation(const siv::PerlinNoise &terrainNoise, int x, int y) {
+        double total = terrainNoise.noise2D(x * worldGenerationInfo.terrainFrequency, y * worldGenerationInfo.terrainFrequency)*
+            (1+abs(terrainNoise.noise2D(x * worldGenerationInfo.terrainFrequency/3.0f, y * worldGenerationInfo.terrainFrequency/3.0f))/3);
+        double divideByAmount = 1.0;
+        int i = 0;
+        for (int m = 4; m <= 64; m *= 4) {
+            /*if (i++ % 2 == 0)
+                total += Math.abs(OpenSimplex2S.noise3_ImproveXY(seed, x * World.elevationFrequency * m, y * World.elevationFrequency * m, 0.0))/(double) m;
+            else*/
+                total += terrainNoise.noise2D(x * worldGenerationInfo.terrainFrequency * m, y * worldGenerationInfo.terrainFrequency * m)/(double) m;
+            divideByAmount += 1/(double) m;
+        }
+        double elevation = total/divideByAmount;
+        float seaLevel = worldGenerationInfo.seaLevel*2.0f-1.0f;
+        if (elevation > seaLevel)
+            elevation = pow(((elevation-seaLevel)/(1.0-seaLevel)), 2);
+        
+        if (elevation > 1.0)
+            elevation = 1.0;
+        if (elevation < -1.0)
+            elevation = -1.0;
+        return float (elevation/2.0+0.5);
+    }
+
     void generateWorld() {
         const siv::PerlinNoise::seed_type terrainNoiseSeed = worldGenerationInfo.seed;
 	    const siv::PerlinNoise terrainNoise{ terrainNoiseSeed };
@@ -345,26 +370,33 @@ private:
                     std::vector<Block> blocks;
                     for (int X = x*CHUNK_X_SIZE; X < (x+1)*CHUNK_X_SIZE; X++) {
                         for (int Y = y*CHUNK_Y_SIZE; Y < (y+1)*CHUNK_Y_SIZE; Y++) {
-                            int highestLand = terrainNoise.normalizedOctave2D_01(X*worldGenerationInfo.terrainFrequency, Y*worldGenerationInfo.terrainFrequency, 6)*CHUNK_Z_SIZE*CHUNK_GRID_Z_SIZE;
+                            int highestLand = 
+                                getElevation(terrainNoise, X, Y)
+                                *CHUNK_Z_SIZE*CHUNK_GRID_Z_SIZE;
                             for (int Z = z*CHUNK_Z_SIZE; Z < (z+1)*CHUNK_Z_SIZE; Z++) {
-                                if (Z > highestLand)
-                                    blockType = AIR;
-                                else if (Z == highestLand) {
-                                    if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*worldGenerationInfo.snowHeight
-                                        +CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.1f*terrainNoise.noise2D_01(Y*0.05f, X*0.05f))
-                                        blockType = SNOW;
+                                if (Z >= worldGenerationInfo.seaLevel*CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE) {
+                                    if (Z > highestLand)
+                                        blockType = AIR;
+                                    else if (Z == highestLand) {
+                                        if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*worldGenerationInfo.snowHeight
+                                            +CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.1f*terrainNoise.noise2D_01(Y*0.05f, X*0.05f))
+                                            blockType = SNOW;
+                                        else
+                                            blockType = GRASS;
+                                    }
+                                    else if (Z >= highestLand-1-2*terrainNoise.noise2D_01(Y, X)) {
+                                        if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*worldGenerationInfo.snowHeight
+                                            +CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.1f*terrainNoise.noise2D_01(Y*0.05f, X*0.05f))
+                                            blockType = STONE;
+                                        else
+                                            blockType = DIRT;
+                                    }
                                     else
-                                        blockType = GRASS;
-                                }
-                                else if (Z >= highestLand-1-2*terrainNoise.noise2D_01(Y, X)) {
-                                    if (Z >= CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*worldGenerationInfo.snowHeight
-                                        +CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE*0.1f*terrainNoise.noise2D_01(Y*0.05f, X*0.05f))
                                         blockType = STONE;
-                                    else
-                                        blockType = DIRT;
                                 }
-                                else
+                                else {
                                     blockType = STONE;
+                                }
                                 
                                 blocks.emplace_back(Block(glm::vec3(X+0.5f, Y+0.5f, Z+0.5f), blockType));
                             }
@@ -384,7 +416,7 @@ private:
             for (int y = 0; y < CHUNK_GRID_Y_SIZE*CHUNK_Y_SIZE; y++) {
                 glm::vec3 base = glm::vec3(x, y, -1.0f);
                 if (treeNoise.normalizedOctave2D_01(y*worldGenerationInfo.treeFrequency, x*worldGenerationInfo.treeFrequency, 2) >= worldGenerationInfo.minTreeNoiseValue) {
-                    for (int z = 0; z < CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE; z++) {
+                    for (int z = worldGenerationInfo.seaLevel*CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE; z < CHUNK_GRID_Z_SIZE*CHUNK_Z_SIZE; z++) {
                         if (getBlock(glm::vec3(x, y, z)).type == GRASS) {
                             base.z = z;
                             break;
@@ -1260,7 +1292,7 @@ private:
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
         samplerInfo.compareEnable = VK_FALSE;
         samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         samplerInfo.minLod = 0.0f; // Optional
         samplerInfo.maxLod = 0.0f;static_cast<float>(mipLevels);
         samplerInfo.mipLodBias = 0.0f; // Optional

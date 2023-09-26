@@ -9,7 +9,7 @@
 
 using namespace VkUtils;
 
-enum BlockType {AIR, GRASS, DIRT, LOG, LEAVES, STONE, SNOW};
+enum BlockType {AIR, GRASS, DIRT, LOG, LEAVES, STONE, SNOW, SAND};
 
 class Block {
 public:
