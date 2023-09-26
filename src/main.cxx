@@ -165,14 +165,15 @@ struct WorldGenerationInfo {
     float snowHeight;
     float treeFrequency;
     float minTreeNoiseValue;
-    float seaLevel = 0.5f;
+    float seaLevel;
 
-    WorldGenerationInfo(uint32_t seed, float terrainFrequency, float snowHeight, float treeFrequency, float minTreeNoiseValue) {
+    WorldGenerationInfo(uint32_t seed, float terrainFrequency, float snowHeight, float treeFrequency, float minTreeNoiseValue, float seaLevel) {
         this->seed = seed;
         this->terrainFrequency = terrainFrequency;
         this->snowHeight = snowHeight;
         this->treeFrequency = treeFrequency;
         this->minTreeNoiseValue = minTreeNoiseValue;
+        this->seaLevel = seaLevel;
     }
 };
 
@@ -258,11 +259,11 @@ private:
     float speed = 30.0f;
     float turningSpeed = 2.0f;
 
-    const static int CHUNK_GRID_X_SIZE = 16, CHUNK_GRID_Y_SIZE = 16, CHUNK_GRID_Z_SIZE = 8;
+    const static int CHUNK_GRID_X_SIZE = 32, CHUNK_GRID_Y_SIZE = 32, CHUNK_GRID_Z_SIZE = 8;
     Chunk *chunkGrid[CHUNK_GRID_X_SIZE*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE];
     bool blocksChanged = true;
 
-    WorldGenerationInfo worldGenerationInfo = WorldGenerationInfo(123u, 0.01f, 0.5f, 1.0f, 0.7f);
+    WorldGenerationInfo worldGenerationInfo = WorldGenerationInfo(123u, 0.01f, 0.6f, 1.0f, 0.7f, 0.5f);
 
     Chunk* getChunk(uint32_t x, uint32_t y, uint32_t z) {
         return chunkGrid[x*CHUNK_GRID_Y_SIZE*CHUNK_GRID_Z_SIZE+y*CHUNK_GRID_Z_SIZE+z];
@@ -349,8 +350,10 @@ private:
         }
         double elevation = total/divideByAmount;
         float seaLevel = worldGenerationInfo.seaLevel*2.0f-1.0f;
-        if (elevation > seaLevel)
-            elevation = pow(((elevation-seaLevel)/(1.0-seaLevel)), 2);
+        if (elevation >= seaLevel)
+            elevation = seaLevel+(1-seaLevel)*pow((elevation-seaLevel)/(1-seaLevel), 2-((elevation-seaLevel)/(1-seaLevel)));
+        else
+            elevation = seaLevel+(-1-seaLevel)*pow((elevation-seaLevel)/(-1-seaLevel), 1+((elevation-seaLevel)/(-1-seaLevel)));
         
         if (elevation > 1.0)
             elevation = 1.0;
@@ -395,7 +398,12 @@ private:
                                         blockType = STONE;
                                 }
                                 else {
-                                    blockType = STONE;
+                                    if (Z > highestLand)
+                                        blockType = AIR;
+                                    else if (Z == highestLand)
+                                        blockType = SAND;
+                                    else
+                                        blockType = STONE;
                                 }
                                 
                                 blocks.emplace_back(Block(glm::vec3(X+0.5f, Y+0.5f, Z+0.5f), blockType));

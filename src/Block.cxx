@@ -92,6 +92,14 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
             bottomTextureCoords.x = sideTextureCoords.x;
             bottomTextureCoords.y = sideTextureCoords.y;
             break;
+        case SAND:
+            sideTextureCoords.x = (2.0f/16.0f);
+            sideTextureCoords.y = (1.0f/16.0f);
+            topTextureCoords.x = sideTextureCoords.x;
+            topTextureCoords.y = sideTextureCoords.y;
+            bottomTextureCoords.x = sideTextureCoords.x;
+            bottomTextureCoords.y = sideTextureCoords.y;
+            break;
              
         case AIR:
             occupied = false;
