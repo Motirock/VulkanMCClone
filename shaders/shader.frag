@@ -22,6 +22,8 @@ vec3 toneMap(vec3 x) {
 
 void main() {
     vec4 sampledColor = texture(texSampler, fragTexCoord);
+    if (sampledColor.a < 0.99f)
+        discard;
     vec3 color = gammaCorrect(sampledColor.x*fragColor.x, sampledColor.y*fragColor.y, sampledColor.z*fragColor.z, 1.5f);
     outColor = vec4(toneMap(color), sampledColor.a);
 }

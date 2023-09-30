@@ -404,7 +404,7 @@ private:
                                 }
                                 else {
                                     if (Z > highestLand)
-                                        blockType = AIR;
+                                        blockType = WATER;
                                     else if (Z == highestLand)
                                         blockType = SAND;
                                     else
@@ -1735,13 +1735,19 @@ private:
                         VkDeviceSize offsets[] = {0};
 
                         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-
                         vkCmdBindIndexBuffer(commandBuffer, getChunk(x, y, z)->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
                         vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(getChunk(x, y, z)->indices.size()), 1, 0, 0, 0);
                     }
                 }
             }
+
+            VkBuffer vertexBuffers[] = {vertexBuffer};
+            VkDeviceSize offsets[] = {0};
+
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
         vkCmdEndRenderPass(commandBuffer);
 
         if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1836,7 +1842,7 @@ private:
 
     std::vector<Block> emptyBlockVector = std::vector<Block>();
     Chunk emptyPlaceholderChunk = Chunk(glm::vec3(-1.0f, -1.0f, -1.0f), emptyBlockVector);
-    void updateChunkVertices(int32_t x, int32_t y, int32_t z) {
+    void updateChunkVertices(int32_t x, int32_t y, int32_t z, uint32_t &mainIndexCount) {
         Chunk positiveXChunk(emptyPlaceholderChunk);
         if (x+1 < CHUNK_GRID_X_SIZE)
             positiveXChunk = *getChunk(x+1, y, z);
@@ -1861,17 +1867,20 @@ private:
         getChunk(x, y, z)->loadVerticesIndices(
             positiveXChunk, negativeXChunk, 
             positiveYChunk, negativeYChunk,
-            positiveZChunk, negativeZChunk);
+            positiveZChunk, negativeZChunk,
+            vertices, indices, mainIndexCount);
     }
 
     void updateVertices() {
         vertices.clear();
         indices.clear();
+
+        uint32_t mainIndexCount = 0; 
         for (int x = 0; x < CHUNK_GRID_X_SIZE; x++) {
             for (int y = 0; y < CHUNK_GRID_Y_SIZE; y++) {
                 for (int z = 0; z < CHUNK_GRID_Z_SIZE; z++) {
                     if (getChunk(x, y, z)->blocksChanged) {
-                        updateChunkVertices(x, y, z);
+                        updateChunkVertices(x, y, z, mainIndexCount);
                         //TODO make it so max index is seperate from max vertex
                         if (getChunk(x, y, z)->vertices.size() > getChunk(x, y, z)->maxVertexCount) {
                             vkDestroyBuffer(device, getChunk(x, y, z)->indexBuffer, nullptr);
@@ -1886,6 +1895,7 @@ private:
                 }
             }
         }
+
         uploadVertices();
         uploadIndices();
 

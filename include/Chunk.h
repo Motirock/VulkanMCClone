@@ -36,7 +36,8 @@ public:
     void loadVerticesIndices(  
         Chunk &positiveXChunk, Chunk &negativeXChunk,
         Chunk &positiveYChunk, Chunk &negativeYChunk,
-        Chunk &positiveZChunk, Chunk &negativeZChunk);
+        Chunk &positiveZChunk, Chunk &negativeZChunk,
+        std::vector<Vertex> &transluscentVertices, std::vector<uint32_t> &transluscentIndices, uint32_t &mainIndexCount);
 
     //TODO this with frustum culling
     bool isVisible(glm::vec3 &cameraPos, glm::vec3 &viewDirection);

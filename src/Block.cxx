@@ -7,28 +7,50 @@ Block::Block() {
 
 Block::Block(glm::vec3 blockPosition, BlockType blockType) : position(blockPosition), type(blockType) {
     occupied = type != AIR;
+    updateOpacity();
 }
 
 Block::~Block() {
 
 }
 
+void Block::updateOpacity() {
+    switch (type) {
+        case DIRT:
+        case GRASS:
+        case LOG:
+        case STONE:
+        case SNOW:
+        case SAND:
+            opaque = true;
+            break;
+        case WATER:
+        case LEAVES:
+        case AIR:
+            opaque = false;
+            break;
+    }
+}
+
 void Block::setType(BlockType blockType) {
     type = blockType;
     occupied = type != AIR;
+    updateOpacity();
 }
 
 void Block::setTypeIfAir(BlockType blockType) {
     if (type == AIR) {
         type = blockType;
         occupied = true;
+        updateOpacity();
     }
 }
 
 void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
     bool positiveXFaceVisible, bool negativeXFaceVisible,
     bool positiveYFaceVisible, bool negativeYFaceVisible,
-    bool positiveZFaceVisible, bool negativeZFaceVisible) {
+    bool positiveZFaceVisible, bool negativeZFaceVisible,
+    std::vector<Vertex> &transluscentVertices, std::vector<uint32_t> &transluscentIndices, uint32_t &mainIndexCount) {
     if (!occupied)
         return;
 
@@ -39,6 +61,7 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
     glm::vec2 sideTextureCoords = glm::vec2(0.0f, 0.0f);
     glm::vec2 topTextureCoords = glm::vec2(0.0f, 0.0f);
     glm::vec2 bottomTextureCoords = glm::vec2(0.0f, 0.0f);
+    bool transluscent = false;
 
     switch (type) {
         case DIRT:
@@ -100,6 +123,16 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
             bottomTextureCoords.x = sideTextureCoords.x;
             bottomTextureCoords.y = sideTextureCoords.y;
             break;
+        case WATER:
+            sideColor = glm::vec3(0.0f, 0.0f, 1.0f);
+            topColor = sideColor;
+            sideTextureCoords.x = (1.0f/16.0f);
+            sideTextureCoords.y = (3.0f/16.0f);
+            topTextureCoords.x = sideTextureCoords.x;
+            topTextureCoords.y = sideTextureCoords.y;
+            bottomTextureCoords.x = sideTextureCoords.x;
+            bottomTextureCoords.y = sideTextureCoords.y;
+            break;
              
         case AIR:
             occupied = false;
@@ -107,93 +140,186 @@ void Block::getVerticesIndices(std::vector<Vertex>& vertices, std::vector<uint32
             break;
     }
     
-    //Positive x face
-    if (positiveXFaceVisible) {
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 3);
-        currentIndex += 4;
-    }
+    if (!transluscent) {
+        //Positive x face
+        if (positiveXFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 3);
+            currentIndex += 4;
+        }
 
-    //Negative x face
-    if (negativeXFaceVisible) {
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 1);
-        currentIndex += 4;
-    }
+        //Negative x face
+        if (negativeXFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            currentIndex += 4;
+        }
 
-    //Positive y face
-    if (positiveYFaceVisible) {
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 1);
-        currentIndex += 4;
-    }
+        //Positive y face
+        if (positiveYFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            currentIndex += 4;
+        }
 
-    //Negative y face
-    if (negativeYFaceVisible) {
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 3);
-        currentIndex += 4;
-    }
+        //Negative y face
+        if (negativeYFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 3);
+            currentIndex += 4;
+        }
 
-    //Positive z face
-    if (positiveZFaceVisible) {
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 3);
-        currentIndex += 4;
-    }
+        //Positive z face
+        if (positiveZFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 3);
+            currentIndex += 4;
+        }
 
-    //Negative z face
-    if (negativeZFaceVisible) {
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
-        vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 1);
-        indices.emplace_back(currentIndex + 0);
-        indices.emplace_back(currentIndex + 3);
-        indices.emplace_back(currentIndex + 2);
-        indices.emplace_back(currentIndex + 1);
-        currentIndex += 4;
+        //Negative z face
+        if (negativeZFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            currentIndex += 4;
+        }
+    }
+    else {
+        //Positive x face
+        if (positiveXFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 3);
+            currentIndex += 4;
+        }
+
+        //Negative x face
+        if (negativeXFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            currentIndex += 4;
+        }
+
+        //Positive y face
+        if (positiveYFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            currentIndex += 4;
+        }
+
+        //Negative y face
+        if (negativeYFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, sideTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 3);
+            currentIndex += 4;
+        }
+
+        //Positive z face
+        if (positiveZFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z+0.5}, topColor, topTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 3);
+            currentIndex += 4;
+        }
+
+        //Negative z face
+        if (negativeZFaceVisible) {
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y+0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(1.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y+0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(0.0f, 0.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x-0.5, position.y-0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(0.0f, 1.0f)/16.0f});
+            vertices.emplace_back(Vertex{{position.x+0.5, position.y-0.5, position.z-0.5}, sideColor, bottomTextureCoords+glm::vec2(1.0f, 1.0f)/16.0f});
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 1);
+            indices.emplace_back(currentIndex + 0);
+            indices.emplace_back(currentIndex + 3);
+            indices.emplace_back(currentIndex + 2);
+            indices.emplace_back(currentIndex + 1);
+            currentIndex += 4;
+        }
     }
 }
